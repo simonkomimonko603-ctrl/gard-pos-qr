@@ -40,13 +40,6 @@
         ::-webkit-scrollbar-track { background: #f1f0ea; }
         ::-webkit-scrollbar-thumb { background: #d9ad1e; border-radius: 4px; }
         .gold-gradient { background: linear-gradient(135deg, #d9ad1e 0%, #b88914 100%); }
-        .gold-border { border-color: #d9ad1e; }
-        @keyframes soundBell {
-            0%, 100% { transform: rotate(0deg); }
-            20%, 60% { transform: rotate(15deg); }
-            40%, 80% { transform: rotate(-15deg); }
-        }
-        .bell-ring { animation: soundBell 0.6s ease-in-out; }
     </style>
 </head>
 <body class="h-screen flex flex-col font-sans select-none overflow-hidden bg-stone-50">
@@ -71,15 +64,19 @@
     <!-- HLAVIČKA -->
     <header class="bg-white border-b border-stone-200 px-5 py-4 flex justify-between items-center shadow-sm shrink-0 z-10">
         <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 rounded-2xl gold-gradient flex items-center justify-center font-black text-white text-xl shadow-md">G</div>
+            <!-- LOGO S DETEKCIOU 10 KLIKNUTÍ PRE BETA MÓD -->
+            <div onclick="handleLogoClick()" class="w-10 h-10 rounded-2xl gold-gradient flex items-center justify-center font-black text-white text-xl shadow-md cursor-pointer active:scale-90 transition">
+                G
+            </div>
             <div>
                 <h1 class="text-lg font-black tracking-wider text-stone-900">GARD <span class="text-gold-500">MENU</span></h1>
                 <p class="text-xs text-stone-500 font-medium" id="table-display-info">Stôl: Načítavam...</p>
             </div>
         </div>
         <div class="flex items-center gap-2">
-            <span class="text-[11px] font-bold bg-amber-50 text-gold-700 px-2.5 py-1 rounded-full border border-gold-300 flex items-center gap-1">
-                <i class="fa-solid fa-crown text-gold-500"></i> Premium
+            <!-- INDIKÁTOR BETA MÓDU -->
+            <span id="beta-mode-badge" class="hidden text-[11px] font-black bg-rose-500 text-white px-2.5 py-1 rounded-full shadow-sm animate-pulse">
+                <i class="fa-solid fa-flask"></i> BETA MÓD
             </span>
         </div>
     </header>
@@ -158,7 +155,7 @@
         </div>
     </div>
 
-    <!-- MODAL DETAIL PRODUKTU SA OBRÁZKOM A POZNÁMKOU -->
+    <!-- MODAL DETAIL PRODUKTU S OBRÁZKOM A POZNÁMKOU -->
     <div id="product-detail-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
         <div class="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col max-h-[90vh]">
             <div class="relative h-48 bg-stone-100 flex items-center justify-center shrink-0">
@@ -205,7 +202,7 @@
             <i class="fa-solid fa-check"></i>
         </div>
         <h2 class="text-2xl font-black text-stone-900 mb-1">Objednávka odoslaná!</h2>
-        <p class="text-sm text-stone-500 mb-6">Vaša objednávka bola úspešne prijatá. Obsluha ju čoskoro pripraví.</p>
+        <p class="text-sm text-stone-500 mb-6" id="success-message-text">Vaša objednávka bola úspešne prijatá. Obsluha ju čoskoro pripraví.</p>
 
         <!-- Karta s bodmi -->
         <div id="loyalty-points-box" class="w-full bg-amber-50 border border-gold-300 rounded-3xl p-5 mb-8 hidden">
@@ -223,7 +220,6 @@
 </div>
 
 <script>
-    // Globálny stav QR aplikácie
     let currentTableId = 'main';
     let currentTableName = 'Hlavná';
     let productsList = [];
@@ -231,18 +227,45 @@
     let loyaltyCards = [];
     let selectedCategory = 'All';
 
-    let localCart = []; // Local storage / state košíka pre QR
+    let localCart = [];
     let selectedModalProduct = null;
     let modalQty = 1;
 
-    // ROI / Kasičky stav
     let fundsState = { investments: 15, stock: 20, payout: 0 };
     let roiGoals = [];
+
+    // BETA MÓD
+    let logoClickCount = 0;
+    let logoClickTimer = null;
+    let isBetaMode = false;
 
     window.addEventListener('DOMContentLoaded', () => {
         parseTableFromUrl();
         initFirebaseListeners();
     });
+
+    // SPRÁVA 10 KLIKNUTÍ PRE BETA MÓD
+    function handleLogoClick() {
+        logoClickCount++;
+        clearTimeout(logoClickTimer);
+        
+        logoClickTimer = setTimeout(() => {
+            logoClickCount = 0;
+        }, 3000); // Ak neklikne 10x do 3 sekúnd, počítadlo sa resetuje
+
+        if (logoClickCount >= 10) {
+            isBetaMode = !isBetaMode;
+            logoClickCount = 0;
+            const badge = document.getElementById('beta-mode-badge');
+            if (isBetaMode) {
+                badge.classList.remove('hidden');
+                alert("🧪 BETA MÓD AKTIVOVANÝ:\nObjednávky prejdú, no nebudú odpočítavať sklad, pridávať do grafov ani upravovať kasičky.");
+            } else {
+                badge.classList.add('hidden');
+                alert("✅ BETA MÓD VYPNUTÝ: Systém opäť funguje v štandardnom ostrom režime.");
+            }
+        }
+    }
 
     function parseTableFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
@@ -256,27 +279,23 @@
     }
 
     function initFirebaseListeners() {
-        // Načítanie kategórií
         db.collection('settings').doc('categories').onSnapshot(doc => {
             if (doc.exists && doc.data().list) categoriesList = doc.data().list;
             renderCategoriesBar();
         });
 
-        // Načítanie produktov
         db.collection('products').onSnapshot(snapshot => {
             productsList = [];
             snapshot.forEach(doc => productsList.push({ id: doc.id, ...doc.data() }));
             renderProducts();
         });
 
-        // Načítanie vernostných kariet
         db.collection('cards').onSnapshot(snapshot => {
             loyaltyCards = [];
             snapshot.forEach(doc => loyaltyCards.push({ id: doc.id, ...doc.data() }));
             renderLoyaltyCardsOptions();
         });
 
-        // Načítanie kasičiek a ROI cieľov (pre okamžitý výpočet pri objednávke)
         db.collection('settings').doc('funds').onSnapshot(doc => {
             if (doc.exists) fundsState = doc.data();
         });
@@ -287,7 +306,6 @@
         });
     }
 
-    // RENDEROVANIE KATEGÓRIÍ
     function renderCategoriesBar() {
         const categoriesBar = document.getElementById('categories-bar');
         const cats = ['All', ...categoriesList];
@@ -304,7 +322,6 @@
         renderProducts();
     }
 
-    // RENDEROVANIE PRODUKTOV
     function renderProducts() {
         const container = document.getElementById('products-container');
         const filtered = selectedCategory === 'All' ? productsList : productsList.filter(p => p.category === selectedCategory);
@@ -333,7 +350,6 @@
         `).join('');
     }
 
-    // MODAL PRE DETAIL PRODUKTU
     function openProductModal(productId) {
         const prod = productsList.find(p => p.id === productId);
         if (!prod) return;
@@ -392,7 +408,6 @@
         updateCartSummary();
     }
 
-    // PRÁCA S KOŠÍKOM
     function updateCartSummary() {
         let totalCount = 0;
         let subtotal = 0;
@@ -405,7 +420,6 @@
         document.getElementById('cart-badge-count').innerText = `${totalCount} ks`;
         document.getElementById('cart-badge-total').innerText = `${subtotal.toFixed(2)} €`;
 
-        // Vernostná karta & zľava
         const cardId = document.getElementById('qr-card-select').value;
         const card = loyaltyCards.find(c => c.id === cardId);
         const discountPct = card ? card.discount : 0;
@@ -467,7 +481,6 @@
         document.getElementById('full-cart-modal').classList.remove('flex');
     }
 
-    // ODOSLANIE OBJEDNÁVKY DO FIRESTORE (ROVNAKÁ LOGIKA AKO V POS)
     async function submitQrOrder() {
         if (localCart.length === 0) {
             alert("Košík je prázdny!");
@@ -501,44 +514,51 @@
 
         const now = new Date();
 
-        // 1. Zápis Transakcie
-        await db.collection('transactions').add({
-            timestamp: now.toISOString(),
-            timeStr: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            hour: now.getHours(),
-            room: currentTableName,
-            total: finalTotal,
-            includeInAnalytics: true,
-            isQrOrder: true,
-            items: orderItems
-        });
+        // **AK JE BETA MÓD ZAPNUTÝ, SÚBORY A FIRESTORE TRANSAKCIE SA NEUPRAVUJÚ**
+        if (!isBetaMode) {
+            // 1. Zápis Transakcie (Do grafov a analytiky)
+            await db.collection('transactions').add({
+                timestamp: now.toISOString(),
+                timeStr: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                hour: now.getHours(),
+                room: currentTableName,
+                total: finalTotal,
+                includeInAnalytics: true,
+                isQrOrder: true,
+                items: orderItems
+            });
 
-        // 2. Príspevok do Kasičiek & ROI cieľov
-        processProfitToFundsAndGoals(totalProfit, `QR Stôl: ${currentTableName}`);
+            // 2. Príspevok do Kasičiek & ROI cieľov
+            processProfitToFundsAndGoals(totalProfit, `QR Stôl: ${currentTableName}`);
 
-        // 3. Odpočet zo skladu
-        localCart.forEach(i => {
-            const p = productsList.find(prod => prod.id === i.product.id);
-            if (p) {
-                db.collection('products').doc(p.id).update({
-                    stock: Math.max(0, p.stock - i.qty)
-                });
+            // 3. Odpočet zo skladu
+            localCart.forEach(i => {
+                const p = productsList.find(prod => prod.id === i.product.id);
+                if (p) {
+                    db.collection('products').doc(p.id).update({
+                        stock: Math.max(0, p.stock - i.qty)
+                    });
+                }
+            });
+
+            // 4. Pripísanie bodov na vernostnú kartu
+            if (card) {
+                const addedPoints = Math.floor(finalTotal);
+                const newPoints = (card.points || 0) + addedPoints;
+                await db.collection('cards').doc(card.id).update({ points: newPoints });
+
+                document.getElementById('loyalty-user-name').innerText = card.name;
+                document.getElementById('loyalty-user-points').innerText = `+${addedPoints} bodov`;
+                document.getElementById('loyalty-total-points-display').innerText = `Celkový stav: ${newPoints} bodov`;
+                document.getElementById('loyalty-points-box').classList.remove('hidden');
+            } else {
+                document.getElementById('loyalty-points-box').classList.add('hidden');
             }
-        });
-
-        // 4. Pripísanie bodov na vernostnú kartu
-        let addedPoints = 0;
-        if (card) {
-            addedPoints = Math.floor(finalTotal);
-            const newPoints = (card.points || 0) + addedPoints;
-            await db.collection('cards').doc(card.id).update({ points: newPoints });
-
-            document.getElementById('loyalty-user-name').innerText = card.name;
-            document.getElementById('loyalty-user-points').innerText = `+${addedPoints} bodov`;
-            document.getElementById('loyalty-total-points-display').innerText = `Celkový stav: ${newPoints} bodov`;
-            document.getElementById('loyalty-points-box').classList.remove('hidden');
+            document.getElementById('success-message-text').innerText = "Vaša objednávka bola úspešne prijatá. Obsluha ju čoskoro pripraví.";
         } else {
+            // BETA MÓD: Iba informovanie užívateľa
             document.getElementById('loyalty-points-box').classList.add('hidden');
+            document.getElementById('success-message-text').innerText = "🧪 (BETA MÓD) Objednávka bola simulovaná. Sklad, grafy ani kasičky neboli upravené.";
         }
 
         // Vyčistenie
@@ -546,7 +566,6 @@
         updateCartSummary();
         closeFullCart();
 
-        // Confetti efekty a potvrdzovacia obrazovka
         if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
         document.getElementById('success-screen').classList.remove('hidden');
         document.getElementById('success-screen').classList.add('flex');
@@ -557,11 +576,9 @@
         document.getElementById('success-screen').classList.remove('flex');
     }
 
-    // LOGIKA ROI CIEĽOV & KASIČIEK
     function processProfitToFundsAndGoals(profitAmount, sourceName) {
         if (profitAmount <= 0) return;
 
-        // ROI Ciele
         roiGoals.forEach(goal => {
             if (goal.current < goal.target) {
                 const addAmount = profitAmount * ((goal.share || 100) / 100);
@@ -570,7 +587,6 @@
             }
         });
 
-        // Trojkasičkový systém
         let invPct = 0.30, stockPct = 0.40, payoutPct = 0.30;
         if (fundsState.stock >= 100) { invPct = 0.50; stockPct = 0.00; payoutPct = 0.50; }
 
