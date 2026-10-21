@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GARD POS - QR Objednávanie</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        gold: {
+                            50: '#fffdf0',
+                            100: '#fefab8',
+                            300: '#f6e17b',
+                            400: '#eac846',
+                            500: '#d9ad1e',
+                            600: '#b88914',
+                            700: '#936513',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { background-color: #faf9f5; color: #1c1917; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #f1f0ea; }
+        ::-webkit-scrollbar-thumb { background: #d9ad1e; border-radius: 4px; }
+        .gold-gradient { background: linear-gradient(135deg, #d9ad1e 0%, #b88914 100%); }
+        .gold-border { border-color: #d9ad1e; }
+        @keyframes soundBell {
+            0%, 100% { transform: rotate(0deg); }
+            20%, 60% { transform: rotate(15deg); }
+            40%, 80% { transform: rotate(-15deg); }
+        }
+        .bell-ring { animation: soundBell 0.6s ease-in-out; }
+    </style>
+</head>
+<body class="h-screen flex flex-col font-sans select-none overflow-hidden bg-stone-50">
+
+<script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyDNReaEooXx-6k5l7xQVRugHQ_aPAjclIw",
+      authDomain: "gard-pos.firebaseapp.com",
+      projectId: "gard-pos",
+      storageBucket: "gard-pos.firebasestorage.app",
+      messagingSenderId: "597035606534",
+      appId: "1:597035606534:web:824ebae8ea54a14c4f9987",
+      measurementId: "G-S1H21HW859"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+</script>
+
+<div id="app" class="h-full w-full flex flex-col max-w-md mx-auto bg-white shadow-2xl relative overflow-hidden">
+    
+    <!-- HLAVIČKA -->
+    <header class="bg-white border-b border-stone-200 px-5 py-4 flex justify-between items-center shadow-sm shrink-0 z-10">
+        <div class="flex items-center space-x-3">
+            <div class="w-10 h-10 rounded-2xl gold-gradient flex items-center justify-center font-black text-white text-xl shadow-md">G</div>
+            <div>
+                <h1 class="text-lg font-black tracking-wider text-stone-900">GARD <span class="text-gold-500">MENU</span></h1>
+                <p class="text-xs text-stone-500 font-medium" id="table-display-info">Stôl: Načítavam...</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <span class="text-[11px] font-bold bg-amber-50 text-gold-700 px-2.5 py-1 rounded-full border border-gold-300 flex items-center gap-1">
+                <i class="fa-solid fa-crown text-gold-500"></i> Premium
+            </span>
+        </div>
+    </header>
+
+    <!-- KATEGÓRIE -->
+    <div class="bg-stone-50/80 border-b border-stone-200 p-2.5 overflow-x-auto whitespace-nowrap shrink-0 scrollbar-none flex gap-2" id="categories-bar">
+        <!-- Dynamicky načítané kategórie -->
+    </div>
+
+    <!-- ZOZNAM PRODUKTOV -->
+    <main class="flex-1 overflow-y-auto p-4 space-y-3" id="products-container">
+        <!-- Dynamicky načítané produkty -->
+    </main>
+
+    <!-- SPODNÁ PLÁVAJÚCA LIŠTA / KOŠÍK TLAČIDLO -->
+    <div id="floating-cart-bar" class="p-4 bg-white/90 backdrop-blur-md border-t border-stone-200 shrink-0 z-20">
+        <button onclick="openFullCart()" id="cart-trigger-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3.5 px-5 rounded-2xl shadow-lg shadow-emerald-600/30 flex justify-between items-center transition active:scale-95">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center text-sm">
+                    <i class="fa-solid fa-basket-shopping"></i>
+                </div>
+                <span class="text-base tracking-wide">Košík</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="cart-badge-count" class="bg-white text-emerald-700 text-xs font-bold px-2 py-0.5 rounded-full">0 ks</span>
+                <span id="cart-badge-total" class="text-lg font-black">0.00 €</span>
+            </div>
+        </button>
+    </div>
+
+    <!-- CELOOBRAZOVKOVÝ KOŠÍK -->
+    <div id="full-cart-modal" class="fixed inset-0 bg-white z-40 hidden flex-col max-w-md mx-auto transition-all duration-300">
+        <div class="bg-stone-900 text-white p-5 flex justify-between items-center shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl gold-gradient flex items-center justify-center font-bold text-stone-950">
+                    <i class="fa-solid fa-receipt"></i>
+                </div>
+                <div>
+                    <h2 class="text-lg font-bold">Váš Košík</h2>
+                    <p class="text-xs text-stone-400" id="cart-table-subtitle">Stôl: --</p>
+                </div>
+            </div>
+            <button onclick="closeFullCart()" class="w-9 h-9 rounded-full bg-stone-800 text-stone-300 hover:text-white flex items-center justify-center">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-5 space-y-4">
+            <!-- Výber vernostnej karty -->
+            <div class="bg-amber-50/60 border border-gold-300 p-3.5 rounded-2xl">
+                <label class="block text-xs font-bold text-gold-700 uppercase tracking-wider mb-1.5">
+                    <i class="fa-solid fa-id-card"></i> Vernostná Karta
+                </label>
+                <select id="qr-card-select" onchange="updateCartSummary()" class="w-full text-sm border border-gold-300 rounded-xl p-2.5 bg-white text-stone-800 focus:outline-none focus:ring-2 focus:ring-gold-500 font-medium">
+                    <option value="">-- Bez zľavovej karty --</option>
+                </select>
+            </div>
+
+            <!-- Položky v košíku -->
+            <div id="cart-items-list" class="space-y-2.5">
+                <!-- Dynamicky vkladané položky -->
+            </div>
+        </div>
+
+        <!-- Súhrn a tlačidlo Objednať -->
+        <div class="border-t border-stone-200 p-5 bg-stone-50 space-y-3 shrink-0">
+            <div class="space-y-1.5 text-sm">
+                <div class="flex justify-between text-stone-500"><span>Medzisúčet:</span><span id="qr-subtotal" class="font-bold text-stone-800">0.00 €</span></div>
+                <div class="flex justify-between text-stone-500"><span>Zľava:</span><span id="qr-discount" class="font-bold text-emerald-600">0.00 € (0%)</span></div>
+                <div class="flex justify-between text-xl font-black text-stone-900 border-t border-stone-200 pt-2"><span>Spolu:</span><span id="qr-total" class="text-gold-600">0.00 €</span></div>
+            </div>
+
+            <button onclick="submitQrOrder()" id="submit-order-btn" class="w-full gold-gradient hover:opacity-95 text-stone-950 font-black py-4 rounded-2xl shadow-xl shadow-gold-500/20 text-lg flex justify-center items-center gap-2 transition active:scale-95">
+                <i class="fa-solid fa-paper-plane"></i> OBJEDNAŤ
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL DETAIL PRODUKTU SA OBRÁZKOM A POZNÁMKOU -->
+    <div id="product-detail-modal" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-3xl overflow-hidden w-full max-w-sm shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="relative h-48 bg-stone-100 flex items-center justify-center shrink-0">
+                <img id="modal-prod-img" src="" alt="Produkt" class="w-full h-full object-cover hidden">
+                <div id="modal-prod-placeholder" class="text-stone-300 text-5xl"><i class="fa-solid fa-utensils"></i></div>
+                <button onclick="closeProductModal()" class="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div class="p-5 overflow-y-auto space-y-4 flex-1">
+                <div>
+                    <h3 id="modal-prod-title" class="text-xl font-bold text-stone-900">--</h3>
+                    <p id="modal-prod-category" class="text-xs text-gold-600 font-semibold uppercase tracking-wider mt-0.5">--</p>
+                    <p id="modal-prod-price" class="text-2xl font-black text-stone-900 mt-2">0.00 €</p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase mb-1">Poznámka k položke:</label>
+                    <input type="text" id="modal-prod-note" placeholder="Napr. bez ľadu, extra omáčka..." class="w-full p-3 border border-stone-300 rounded-xl text-sm bg-stone-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-gold-500">
+                </div>
+
+                <div class="flex items-center justify-between bg-stone-100 p-2 rounded-2xl">
+                    <span class="text-xs font-bold text-stone-600 px-3">Počet kusov:</span>
+                    <div class="flex items-center gap-3">
+                        <button onclick="adjustModalQty(-1)" class="w-9 h-9 rounded-xl bg-white border border-stone-300 text-stone-800 font-bold flex items-center justify-center shadow-sm text-lg">-</button>
+                        <span id="modal-prod-qty" class="font-black text-lg text-stone-900 w-6 text-center">1</span>
+                        <button onclick="adjustModalQty(1)" class="w-9 h-9 rounded-xl bg-white border border-stone-300 text-stone-800 font-bold flex items-center justify-center shadow-sm text-lg">+</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-stone-200 bg-stone-50 shrink-0">
+                <button onclick="confirmAddToCartFromModal()" class="w-full gold-gradient text-stone-950 font-black py-3.5 rounded-2xl text-base shadow-md">
+                    Pridať do košíka
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- OBRAZOVKA POTVRDENIA OBJEDNÁVKY -->
+    <div id="success-screen" class="fixed inset-0 bg-white z-50 hidden flex-col items-center justify-center p-6 text-center">
+        <div class="w-20 h-20 rounded-full bg-emerald-100 border-2 border-emerald-500 text-emerald-600 flex items-center justify-center text-4xl mb-4 shadow-xl">
+            <i class="fa-solid fa-check"></i>
+        </div>
+        <h2 class="text-2xl font-black text-stone-900 mb-1">Objednávka odoslaná!</h2>
+        <p class="text-sm text-stone-500 mb-6">Vaša objednávka bola úspešne prijatá. Obsluha ju čoskoro pripraví.</p>
+
+        <!-- Karta s bodmi -->
+        <div id="loyalty-points-box" class="w-full bg-amber-50 border border-gold-300 rounded-3xl p-5 mb-8 hidden">
+            <div class="text-xs text-gold-700 font-bold uppercase tracking-wider mb-1">Vernostný Program</div>
+            <div class="text-stone-800 font-semibold text-sm" id="loyalty-user-name">--</div>
+            <div class="text-3xl font-black text-gold-600 my-2" id="loyalty-user-points">+0 bodov</div>
+            <p class="text-xs text-stone-500" id="loyalty-total-points-display">Celkový stav: 0 bodov</p>
+        </div>
+
+        <button onclick="closeSuccessScreen()" class="w-full bg-stone-900 text-white font-bold py-4 rounded-2xl shadow-lg">
+            Naspäť na menu
+        </button>
+    </div>
+
+</div>
+
+<script>
+    // Globálny stav QR aplikácie
+    let currentTableId = 'main';
+    let currentTableName = 'Hlavná';
+    let productsList = [];
+    let categoriesList = ["Káva & Nápoje", "Jedlo", "Dezerty", "Rôzne"];
+    let loyaltyCards = [];
+    let selectedCategory = 'All';
+
+    let localCart = []; // Local storage / state košíka pre QR
+    let selectedModalProduct = null;
+    let modalQty = 1;
+
+    // ROI / Kasičky stav
+    let fundsState = { investments: 15, stock: 20, payout: 0 };
+    let roiGoals = [];
+
+    window.addEventListener('DOMContentLoaded', () => {
+        parseTableFromUrl();
+        initFirebaseListeners();
+    });
+
+    function parseTableFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tableParam = urlParams.get('table');
+        if (tableParam) {
+            currentTableId = tableParam;
+            currentTableName = tableParam.charAt(0).toUpperCase() + tableParam.slice(1);
+        }
+        document.getElementById('table-display-info').innerText = `Stôl: ${currentTableName}`;
+        document.getElementById('cart-table-subtitle').innerText = `Stôl: ${currentTableName}`;
+    }
+
+    function initFirebaseListeners() {
+        // Načítanie kategórií
+        db.collection('settings').doc('categories').onSnapshot(doc => {
+            if (doc.exists && doc.data().list) categoriesList = doc.data().list;
+            renderCategoriesBar();
+        });
+
+        // Načítanie produktov
+        db.collection('products').onSnapshot(snapshot => {
+            productsList = [];
+            snapshot.forEach(doc => productsList.push({ id: doc.id, ...doc.data() }));
+            renderProducts();
+        });
+
+        // Načítanie vernostných kariet
+        db.collection('cards').onSnapshot(snapshot => {
+            loyaltyCards = [];
+            snapshot.forEach(doc => loyaltyCards.push({ id: doc.id, ...doc.data() }));
+            renderLoyaltyCardsOptions();
+        });
+
+        // Načítanie kasičiek a ROI cieľov (pre okamžitý výpočet pri objednávke)
+        db.collection('settings').doc('funds').onSnapshot(doc => {
+            if (doc.exists) fundsState = doc.data();
+        });
+
+        db.collection('roi_goals').onSnapshot(snapshot => {
+            roiGoals = [];
+            snapshot.forEach(doc => roiGoals.push({ id: doc.id, ...doc.data() }));
+        });
+    }
+
+    // RENDEROVANIE KATEGÓRIÍ
+    function renderCategoriesBar() {
+        const categoriesBar = document.getElementById('categories-bar');
+        const cats = ['All', ...categoriesList];
+        categoriesBar.innerHTML = cats.map(c => `
+            <button onclick="selectCategory('${c}')" class="px-4 py-2 rounded-xl text-xs font-bold transition border ${selectedCategory === c ? 'gold-gradient text-stone-950 border-gold-400 shadow-sm' : 'bg-white text-stone-600 border-stone-200 hover:bg-stone-100'}">
+                ${c === 'All' ? 'Všetko' : c}
+            </button>
+        `).join('');
+    }
+
+    function selectCategory(cat) {
+        selectedCategory = cat;
+        renderCategoriesBar();
+        renderProducts();
+    }
+
+    // RENDEROVANIE PRODUKTOV
+    function renderProducts() {
+        const container = document.getElementById('products-container');
+        const filtered = selectedCategory === 'All' ? productsList : productsList.filter(p => p.category === selectedCategory);
+
+        if (filtered.length === 0) {
+            container.innerHTML = `<div class="text-center py-12 text-stone-400 text-sm">Žiadne dostupné produkty</div>`;
+            return;
+        }
+
+        container.innerHTML = filtered.map(p => `
+            <div onclick="openProductModal('${p.id}')" class="bg-white border border-stone-200 hover:border-gold-400 rounded-2xl p-3.5 shadow-sm flex justify-between items-center cursor-pointer transition active:scale-[0.98]">
+                <div class="flex items-center space-x-3">
+                    <div class="w-14 h-14 rounded-xl bg-stone-100 overflow-hidden flex items-center justify-center text-stone-400 shrink-0">
+                        ${p.imageUrl ? `<img src="${p.imageUrl}" class="w-full h-full object-cover">` : `<i class="fa-solid fa-utensils text-lg"></i>`}
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-stone-900 text-sm leading-tight">${p.name}</h4>
+                        <p class="text-[11px] text-stone-400 font-medium mt-0.5">${p.category}</p>
+                        <div class="text-gold-600 font-black text-base mt-1">${parseFloat(p.price).toFixed(2)} €</div>
+                    </div>
+                </div>
+                <button class="w-9 h-9 rounded-xl bg-amber-50 text-gold-600 border border-gold-300 flex items-center justify-center font-bold">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    // MODAL PRE DETAIL PRODUKTU
+    function openProductModal(productId) {
+        const prod = productsList.find(p => p.id === productId);
+        if (!prod) return;
+
+        selectedModalProduct = prod;
+        modalQty = 1;
+        document.getElementById('modal-prod-qty').innerText = modalQty;
+        document.getElementById('modal-prod-note').value = '';
+
+        document.getElementById('modal-prod-title').innerText = prod.name;
+        document.getElementById('modal-prod-category').innerText = prod.category;
+        document.getElementById('modal-prod-price').innerText = `${parseFloat(prod.price).toFixed(2)} €`;
+
+        const imgEl = document.getElementById('modal-prod-img');
+        const placeholderEl = document.getElementById('modal-prod-placeholder');
+
+        if (prod.imageUrl) {
+            imgEl.src = prod.imageUrl;
+            imgEl.classList.remove('hidden');
+            placeholderEl.classList.add('hidden');
+        } else {
+            imgEl.classList.add('hidden');
+            placeholderEl.classList.remove('hidden');
+        }
+
+        document.getElementById('product-detail-modal').classList.remove('hidden');
+        document.getElementById('product-detail-modal').classList.add('flex');
+    }
+
+    function closeProductModal() {
+        document.getElementById('product-detail-modal').classList.add('hidden');
+        document.getElementById('product-detail-modal').classList.remove('flex');
+    }
+
+    function adjustModalQty(delta) {
+        modalQty = Math.max(1, modalQty + delta);
+        document.getElementById('modal-prod-qty').innerText = modalQty;
+    }
+
+    function confirmAddToCartFromModal() {
+        if (!selectedModalProduct) return;
+        const note = document.getElementById('modal-prod-note').value.trim();
+
+        const existingIndex = localCart.findIndex(item => item.product.id === selectedModalProduct.id && item.note === note);
+        if (existingIndex > -1) {
+            localCart[existingIndex].qty += modalQty;
+        } else {
+            localCart.push({
+                product: selectedModalProduct,
+                qty: modalQty,
+                note: note
+            });
+        }
+
+        closeProductModal();
+        updateCartSummary();
+    }
+
+    // PRÁCA S KOŠÍKOM
+    function updateCartSummary() {
+        let totalCount = 0;
+        let subtotal = 0;
+
+        localCart.forEach(item => {
+            totalCount += item.qty;
+            subtotal += item.product.price * item.qty;
+        });
+
+        document.getElementById('cart-badge-count').innerText = `${totalCount} ks`;
+        document.getElementById('cart-badge-total').innerText = `${subtotal.toFixed(2)} €`;
+
+        // Vernostná karta & zľava
+        const cardId = document.getElementById('qr-card-select').value;
+        const card = loyaltyCards.find(c => c.id === cardId);
+        const discountPct = card ? card.discount : 0;
+        const discountAmount = (subtotal * discountPct) / 100;
+        const total = subtotal - discountAmount;
+
+        document.getElementById('qr-subtotal').innerText = `${subtotal.toFixed(2)} €`;
+        document.getElementById('qr-discount').innerText = `-${discountAmount.toFixed(2)} € (${discountPct}%)`;
+        document.getElementById('qr-total').innerText = `${total.toFixed(2)} €`;
+
+        renderCartItemsList();
+    }
+
+    function renderCartItemsList() {
+        const container = document.getElementById('cart-items-list');
+        if (localCart.length === 0) {
+            container.innerHTML = `<div class="text-center py-10 text-stone-400 text-sm">Košík je prázdny</div>`;
+            return;
+        }
+
+        container.innerHTML = localCart.map((item, idx) => `
+            <div class="bg-white border border-stone-200 p-3 rounded-2xl flex justify-between items-center shadow-sm">
+                <div class="flex-1">
+                    <div class="font-bold text-stone-900 text-sm">${item.product.name}</div>
+                    ${item.note ? `<div class="text-xs text-gold-600 font-medium">Pozn: ${item.note}</div>` : ''}
+                    <div class="text-xs text-stone-400">${parseFloat(item.product.price).toFixed(2)} €</div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="updateCartItemQty(${idx}, -1)" class="w-7 h-7 bg-stone-100 rounded-lg font-bold text-xs">-</button>
+                    <span class="font-bold text-stone-900 text-sm w-5 text-center">${item.qty}</span>
+                    <button onclick="updateCartItemQty(${idx}, 1)" class="w-7 h-7 bg-stone-100 rounded-lg font-bold text-xs">+</button>
+                </div>
+                <div class="w-16 text-right font-black text-stone-900 text-sm ml-2">
+                    ${(item.product.price * item.qty).toFixed(2)} €
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function updateCartItemQty(index, delta) {
+        localCart[index].qty += delta;
+        if (localCart[index].qty <= 0) localCart.splice(index, 1);
+        updateCartSummary();
+    }
+
+    function renderLoyaltyCardsOptions() {
+        const select = document.getElementById('qr-card-select');
+        select.innerHTML = '<option value="">-- Bez zľavovej karty --</option>' +
+            loyaltyCards.map(c => `<option value="${c.id}">${c.name} (${c.code}) - ${c.discount}% zľava</option>`).join('');
+    }
+
+    function openFullCart() {
+        document.getElementById('full-cart-modal').classList.remove('hidden');
+        document.getElementById('full-cart-modal').classList.add('flex');
+    }
+
+    function closeFullCart() {
+        document.getElementById('full-cart-modal').classList.add('hidden');
+        document.getElementById('full-cart-modal').classList.remove('flex');
+    }
+
+    // ODOSLANIE OBJEDNÁVKY DO FIRESTORE (ROVNAKÁ LOGIKA AKO V POS)
+    async function submitQrOrder() {
+        if (localCart.length === 0) {
+            alert("Košík je prázdny!");
+            return;
+        }
+
+        const cardId = document.getElementById('qr-card-select').value;
+        const card = loyaltyCards.find(c => c.id === cardId);
+
+        let subtotal = 0;
+        let totalProfit = 0;
+
+        const orderItems = localCart.map(i => {
+            const itemTotal = i.product.price * i.qty;
+            subtotal += itemTotal;
+            const profitPerUnit = i.product.profit || (i.product.price * 0.4);
+            totalProfit += profitPerUnit * i.qty;
+
+            return {
+                id: i.product.id,
+                name: i.note ? `${i.product.name} (${i.note})` : i.product.name,
+                qty: i.qty,
+                price: i.product.price,
+                unit: i.product.unit || 'ks'
+            };
+        });
+
+        const discountPct = card ? card.discount : 0;
+        const discountAmount = (subtotal * discountPct) / 100;
+        const finalTotal = subtotal - discountAmount;
+
+        const now = new Date();
+
+        // 1. Zápis Transakcie
+        await db.collection('transactions').add({
+            timestamp: now.toISOString(),
+            timeStr: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            hour: now.getHours(),
+            room: currentTableName,
+            total: finalTotal,
+            includeInAnalytics: true,
+            isQrOrder: true,
+            items: orderItems
+        });
+
+        // 2. Príspevok do Kasičiek & ROI cieľov
+        processProfitToFundsAndGoals(totalProfit, `QR Stôl: ${currentTableName}`);
+
+        // 3. Odpočet zo skladu
+        localCart.forEach(i => {
+            const p = productsList.find(prod => prod.id === i.product.id);
+            if (p) {
+                db.collection('products').doc(p.id).update({
+                    stock: Math.max(0, p.stock - i.qty)
+                });
+            }
+        });
+
+        // 4. Pripísanie bodov na vernostnú kartu
+        let addedPoints = 0;
+        if (card) {
+            addedPoints = Math.floor(finalTotal);
+            const newPoints = (card.points || 0) + addedPoints;
+            await db.collection('cards').doc(card.id).update({ points: newPoints });
+
+            document.getElementById('loyalty-user-name').innerText = card.name;
+            document.getElementById('loyalty-user-points').innerText = `+${addedPoints} bodov`;
+            document.getElementById('loyalty-total-points-display').innerText = `Celkový stav: ${newPoints} bodov`;
+            document.getElementById('loyalty-points-box').classList.remove('hidden');
+        } else {
+            document.getElementById('loyalty-points-box').classList.add('hidden');
+        }
+
+        // Vyčistenie
+        localCart = [];
+        updateCartSummary();
+        closeFullCart();
+
+        // Confetti efekty a potvrdzovacia obrazovka
+        if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        document.getElementById('success-screen').classList.remove('hidden');
+        document.getElementById('success-screen').classList.add('flex');
+    }
+
+    function closeSuccessScreen() {
+        document.getElementById('success-screen').classList.add('hidden');
+        document.getElementById('success-screen').classList.remove('flex');
+    }
+
+    // LOGIKA ROI CIEĽOV & KASIČIEK
+    function processProfitToFundsAndGoals(profitAmount, sourceName) {
+        if (profitAmount <= 0) return;
+
+        // ROI Ciele
+        roiGoals.forEach(goal => {
+            if (goal.current < goal.target) {
+                const addAmount = profitAmount * ((goal.share || 100) / 100);
+                const newCurrent = Math.min(goal.target, goal.current + addAmount);
+                db.collection('roi_goals').doc(goal.id).update({ current: newCurrent });
+            }
+        });
+
+        // Trojkasičkový systém
+        let invPct = 0.30, stockPct = 0.40, payoutPct = 0.30;
+        if (fundsState.stock >= 100) { invPct = 0.50; stockPct = 0.00; payoutPct = 0.50; }
+
+        const split = {
+            investments: profitAmount * invPct,
+            stock: profitAmount * stockPct,
+            payout: profitAmount * payoutPct
+        };
+
+        fundsState.investments += split.investments;
+        fundsState.stock += split.stock;
+        fundsState.payout += split.payout;
+
+        db.collection('settings').doc('funds').set(fundsState);
+
+        db.collection('fund_logs').add({
+            timestamp: new Date().toISOString(),
+            timeStr: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            type: `Zisk (${sourceName})`,
+            amount: profitAmount,
+            split: split,
+            note: `QR Objednávka rozdelená do kasičiek a ROI cieľov`
+        });
+    }
+</script>
+</body>
+</html>
