@@ -64,12 +64,14 @@
     <!-- HLAVIČKA -->
     <header class="bg-white border-b border-stone-200 px-5 py-4 flex justify-between items-center shadow-sm shrink-0 z-10">
         <div class="flex items-center space-x-3">
-            <div onclick="handleLogoClick()" class="w-10 h-10 rounded-2xl gold-gradient flex items-center justify-center font-black text-white text-xl shadow-md cursor-pointer active:scale-90 transition">
+            <div onclick="openTableSelectModal()" class="w-10 h-10 rounded-2xl gold-gradient flex items-center justify-center font-black text-white text-xl shadow-md cursor-pointer active:scale-90 transition" title="Zmeniť stôl">
                 G
             </div>
             <div>
                 <h1 class="text-lg font-black tracking-wider text-stone-900">GARD <span class="text-gold-500">MENU</span></h1>
-                <p class="text-xs text-stone-500 font-medium" id="table-display-info">Stôl: Načítavam...</p>
+                <p class="text-xs text-stone-500 font-medium cursor-pointer flex items-center gap-1" onclick="openTableSelectModal()">
+                    <span id="table-display-info">Stôl: Načítavam...</span> <i class="fa-solid fa-pen text-[10px] text-gold-600"></i>
+                </p>
             </div>
         </div>
         <div class="flex items-center gap-2">
@@ -101,6 +103,26 @@
                 <span id="cart-badge-total" class="text-lg font-black">0.00 €</span>
             </div>
         </button>
+    </div>
+
+    <!-- MODAL: VÝBER STOLA -->
+    <div id="table-select-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex-col items-center justify-center p-6">
+        <div class="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl text-center space-y-4">
+            <div class="w-16 h-16 rounded-2xl gold-gradient mx-auto flex items-center justify-center text-white text-2xl font-bold shadow-md">
+                <i class="fa-solid fa-chair"></i>
+            </div>
+            <h3 class="text-xl font-black text-stone-900">Zadajte alebo vyberte stôl</h3>
+            <p class="text-xs text-stone-500">Na akom stole / v ktorej izbe sedíte?</p>
+            
+            <div id="available-tables-grid" class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
+                <!-- Načítané dynamicky z Firebase rooms -->
+            </div>
+
+            <div class="pt-2 border-t border-stone-100 flex gap-2">
+                <input type="text" id="custom-table-input" placeholder="Alebo napíšte vlastný..." class="flex-1 p-3 border border-stone-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gold-500">
+                <button onclick="saveCustomTable()" class="gold-gradient text-stone-950 font-bold px-4 py-3 rounded-xl text-sm">OK</button>
+            </div>
+        </div>
     </div>
 
     <!-- CELOOBRAZOVKOVÝ KOŠÍK -->
@@ -210,58 +232,76 @@
 </div>
 
 <script>
-    let currentTableId = 'main';
     let currentTableName = 'Hlavná';
     let productsList = [];
     let categoriesList = ["Káva & Nápoje", "Jedlo", "Dezerty", "Rôzne"];
     let loyaltyCards = [];
+    let availableRooms = [];
     let selectedCategory = 'All';
 
     let localCart = [];
     let selectedModalProduct = null;
     let modalQty = 1;
 
-    // BETA MÓD
-    let logoClickCount = 0;
-    let logoClickTimer = null;
-    let isBetaMode = false;
-
     window.addEventListener('DOMContentLoaded', () => {
         parseTableFromUrl();
         initFirebaseListeners();
     });
 
-    function handleLogoClick() {
-        logoClickCount++;
-        clearTimeout(logoClickTimer);
-        
-        logoClickTimer = setTimeout(() => {
-            logoClickCount = 0;
-        }, 3000);
-
-        if (logoClickCount >= 10) {
-            isBetaMode = !isBetaMode;
-            logoClickCount = 0;
-            const badge = document.getElementById('beta-mode-badge');
-            if (isBetaMode) {
-                badge.classList.remove('hidden');
-                alert("🧪 BETA MÓD AKTIVOVANÝ:\nObjednávky nebudú odoslané obsluhe na pokladňu.");
-            } else {
-                badge.classList.add('hidden');
-                alert("✅ BETA MÓD VYPNUTÝ: Objednávky sa opäť odosielajú obsluhe.");
-            }
-        }
-    }
-
     function parseTableFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
         const tableParam = urlParams.get('table');
         if (tableParam) {
-            currentTableId = tableParam;
-            currentTableName = tableParam.charAt(0).toUpperCase() + tableParam.slice(1);
+            currentTableName = decodeURIComponent(tableParam);
+            updateTableDisplay();
+        } else {
+            // Ak stôl nie je v URL, otvoríme okno na výber stola
+            setTimeout(() => { openTableSelectModal(); }, 500);
         }
+    }
+
+    function updateTableDisplay() {
         document.getElementById('table-display-info').innerText = `Stôl: ${currentTableName}`;
         document.getElementById('cart-table-subtitle').innerText = `Stôl: ${currentTableName}`;
+    }
+
+    function openTableSelectModal() {
+        renderAvailableRoomsUI();
+        document.getElementById('table-select-modal').classList.remove('hidden');
+        document.getElementById('table-select-modal').classList.add('flex');
+    }
+
+    function closeTableSelectModal() {
+        document.getElementById('table-select-modal').classList.add('hidden');
+        document.getElementById('table-select-modal').classList.remove('flex');
+    }
+
+    function renderAvailableRoomsUI() {
+        const grid = document.getElementById('available-tables-grid');
+        if (availableRooms.length === 0) {
+            grid.innerHTML = `<div class="col-span-2 text-xs text-stone-400 py-2">Načítavam stoly... (alebo zadajte vlastný)</div>`;
+            return;
+        }
+        grid.innerHTML = availableRooms.map(r => `
+            <button onclick=" selectTable('${r.name}')" class="p-2.5 bg-stone-100 hover:bg-gold-50 hover:border-gold-400 border border-stone-200 rounded-xl font-bold text-xs text-stone-800 transition">
+                ${r.name}
+            </button>
+        `).join('');
+    }
+
+    function selectTable(name) {
+        currentTableName = name;
+        updateTableDisplay();
+        closeTableSelectModal();
+    }
+
+    function saveCustomTable() {
+        const val = document.getElementById('custom-table-input').value.trim();
+        if (val) {
+            selectTable(val);
+        } else {
+            alert("Zadajte názov stola.");
+        }
     }
 
     function initFirebaseListeners() {
@@ -280,6 +320,13 @@
             loyaltyCards = [];
             snapshot.forEach(doc => loyaltyCards.push({ id: doc.id, ...doc.data() }));
             renderLoyaltyCardsOptions();
+        });
+
+        // Načítanie izieb/stolov z POS pokladne
+        db.collection('rooms').onSnapshot(snapshot => {
+            availableRooms = [];
+            snapshot.forEach(doc => availableRooms.push({ id: doc.id, ...doc.data() }));
+            renderAvailableRoomsUI();
         });
     }
 
@@ -411,7 +458,7 @@
     }
 
     function renderCartItemsList() {
-        const container = document.getElementById('cart-items-list');
+        The container = document.getElementById('cart-items-list');
         if (localCart.length === 0) {
             container.innerHTML = `<div class="text-center py-10 text-stone-400 text-sm">Košík je prázdny</div>`;
             return;
@@ -488,7 +535,8 @@
 
         const now = new Date();
 
-        if (!isBetaMode) {
+        try {
+            // **ODOSLANIE OBJEDNÁVKY DO POS TERMINÁLU**
             await db.collection('qr_orders').add({
                 timestamp: now.toISOString(),
                 timeStr: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -506,19 +554,20 @@
             } else {
                 document.getElementById('loyalty-points-box').classList.add('hidden');
             }
-            document.getElementById('success-message-text').innerText = "Vaša objednávka bola odoslaná obsluhe. Po potvrdení bude čoskoro pripravená!";
-        } else {
-            document.getElementById('loyalty-points-box').classList.add('hidden');
-            document.getElementById('success-message-text').innerText = "🧪 (BETA MÓD) Objednávka bola iba simulovaná a nebola odoslaná na pokladňu.";
+            document.getElementById('success-message-text').innerText = `Vaša objednávka pre stôl "${currentTableName}" bola odoslaná obsluhe!`;
+
+            localCart = [];
+            updateCartSummary();
+            closeFullCart();
+
+            if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+            document.getElementById('success-screen').classList.remove('hidden');
+            document.getElementById('success-screen').classList.add('flex');
+
+        } catch (error) {
+            console.error("Chyba pri odosielaní objednávky:", error);
+            alert("Nepodarilo sa odoslať objednávku. Skontrolujte pripojenie alebo Firebase pravidlá (Security Rules).");
         }
-
-        localCart = [];
-        updateCartSummary();
-        closeFullCart();
-
-        if (typeof confetti === 'function') confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-        document.getElementById('success-screen').classList.remove('hidden');
-        document.getElementById('success-screen').classList.add('flex');
     }
 
     function closeSuccessScreen() {
