@@ -74,11 +74,6 @@
                 </p>
             </div>
         </div>
-        <div class="flex items-center gap-2">
-            <span id="beta-mode-badge" class="hidden text-[11px] font-black bg-rose-500 text-white px-2.5 py-1 rounded-full shadow-sm animate-pulse">
-                <i class="fa-solid fa-flask"></i> BETA MÓD
-            </span>
-        </div>
     </header>
 
     <!-- KATEGÓRIE -->
@@ -115,7 +110,6 @@
             <p class="text-xs text-stone-500">Na akom stole / v ktorej izbe sedíte?</p>
             
             <div id="available-tables-grid" class="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto p-1">
-                <!-- Načítané dynamicky z Firebase rooms -->
             </div>
 
             <div class="pt-2 border-t border-stone-100 flex gap-2">
@@ -255,7 +249,6 @@
             currentTableName = decodeURIComponent(tableParam);
             updateTableDisplay();
         } else {
-            // Ak stôl nie je v URL, otvoríme okno na výber stola
             setTimeout(() => { openTableSelectModal(); }, 500);
         }
     }
@@ -283,7 +276,7 @@
             return;
         }
         grid.innerHTML = availableRooms.map(r => `
-            <button onclick=" selectTable('${r.name}')" class="p-2.5 bg-stone-100 hover:bg-gold-50 hover:border-gold-400 border border-stone-200 rounded-xl font-bold text-xs text-stone-800 transition">
+            <button onclick="selectTable('${r.name}')" class="p-2.5 bg-stone-100 hover:bg-gold-50 hover:border-gold-400 border border-stone-200 rounded-xl font-bold text-xs text-stone-800 transition">
                 ${r.name}
             </button>
         `).join('');
@@ -322,7 +315,6 @@
             renderLoyaltyCardsOptions();
         });
 
-        // Načítanie izieb/stolov z POS pokladne
         db.collection('rooms').onSnapshot(snapshot => {
             availableRooms = [];
             snapshot.forEach(doc => availableRooms.push({ id: doc.id, ...doc.data() }));
@@ -458,7 +450,7 @@
     }
 
     function renderCartItemsList() {
-        The container = document.getElementById('cart-items-list');
+        const container = document.getElementById('cart-items-list');
         if (localCart.length === 0) {
             container.innerHTML = `<div class="text-center py-10 text-stone-400 text-sm">Košík je prázdny</div>`;
             return;
@@ -484,8 +476,12 @@
     }
 
     function updateCartItemQty(index, delta) {
-        localCart[index].qty += delta;
-        if (localCart[index].qty <= 0) localCart.splice(index, 1);
+        let newQty = localCart[index].qty + delta;
+        if (newQty <= 0) {
+            localCart.splice(index, 1);
+        } else {
+            localCart[index].qty = newQty;
+        }
         updateCartSummary();
     }
 
@@ -536,8 +532,8 @@
         const now = new Date();
 
         try {
-            // **ODOSLANIE OBJEDNÁVKY DO POS TERMINÁLU**
-            await db.collection('qr_orders').add({
+            // **ODOSLANIE LEN DO KOLEKCIE ORDERS SO STATUSOM PENDING (Pokladňa to zachytí, začne pípať a otvorí okno)**
+            await db.collection('orders').add({
                 timestamp: now.toISOString(),
                 timeStr: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 room: currentTableName,
